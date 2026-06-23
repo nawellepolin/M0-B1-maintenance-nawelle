@@ -25,10 +25,22 @@ from loguru import logger
 
 from app.schemas import HealthResponse, MachineInput, PredictionResponse
 
+import pandas as pd
+import time
+from loguru import logger
+
 MODEL_PATH = Path(__file__).resolve().parents[1] / "model" / "model.joblib"
 
 # Mémoire d'application — peuplée par le lifespan
 state: dict[str, Any] = {}
+
+logger.add(
+    "logs/api.log",
+    rotation="5 MB",
+    retention="7 days",
+    compression="zip",
+    level="INFO",
+)
 
 
 @asynccontextmanager
@@ -104,10 +116,32 @@ def predict(item: MachineInput) -> PredictionResponse:
     Returns:
         PredictionResponse avec la classe prédite et les probabilités.
     """
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Endpoint /predict à implémenter — voir TODO dans app/main.py "
-            "et le mini-cours 01_FastAPI_essentiel.md."
-        ),
-    )
+
+    logger.info(f"Requête /predict reçue : {item.model_dump()}")
+    t0 = time.perf_counter()
+
+    # 1. Charger le modèle depuis state
+    model = state.get("model")
+    if model is None:
+        raise HTTPException(503, "Modèle non chargé")
+
+    # 2. Construire un DataFrame à partir de l'item
+    df = pd.DataFrame([item.model_dump()])
+
+    # 3. Prédire la classe et les probabilités
+    classe = str(model.predict(df)[0])
+    probas = model.predict_proba(df)[0]
+    classes = model.classes_
+
+    # 4. Construire le dict {classe: proba}
+    proba_dict = {str(c): float(p) for c, p in zip(classes, probas)}
+
+    # 5. Logger l'événement
+    logger.info(f"Prédiction : {classe} (entrée={item.model_dump()})")
+
+    duree_ms = (time.perf_counter() - t0) * 1000
+    logger.info(f"Prédiction = {classe} (durée {duree_ms:.1f} ms)")
+
+    # 6. Retourner la réponse typée
+    return PredictionResponse(criticite=classe, probabilites=proba_dict)
+
