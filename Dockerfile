@@ -31,3 +31,23 @@
 #   docker build -t fastia-maintenance:dev .
 #   docker run --rm -p 8000:8000 fastia-maintenance:dev
 #   curl http://localhost:8000/health
+
+# Versions testées : Docker 24+, image python:3.11-slim
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 1. Dépendances d'abord (cache des couches)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 2. Code applicatif
+COPY app/ ./app/
+COPY model/ ./model/
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
